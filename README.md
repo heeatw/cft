@@ -16,8 +16,8 @@ no personal logins, tabs or extensions are involved.
 Requires macOS (or Linux), `git`, `curl`, and `npx` (Node.js) for downloading the browser.
 
 ```sh
-git clone git@github.com:heeatw/cft.git ~/dev/cft
-~/dev/cft/install.sh        # symlinks bin/cft into ~/.local/bin (must be on PATH)
+git clone git@github.com:heeatw/cft.git ~/dev/heeatw/cft
+~/dev/heeatw/cft/install.sh        # symlinks bin/cft into ~/.local/bin (must be on PATH)
 cft install                 # downloads the newest stable Chrome for Testing
 ```
 

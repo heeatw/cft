@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get install -y shellcheck
+      - run: shellcheck -S warning bin/cft install.sh test/smoke.sh
+
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      # Linux runners have no display, and Ubuntu 24.04 blocks unprivileged user namespaces (Chrome's sandbox).
+      CFT_FLAGS: ${{ matrix.os == 'ubuntu-latest' && '--headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage' || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install cft
+        run: |
+          ./install.sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Cache Chrome for Testing
+        uses: actions/cache@v4
+        with:
+          path: ~/.chrome-for-testing/browsers
+          key: cft-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/cft') }}
+      - name: Install Chrome for Testing
+        run: cft install
+      - run: cft version
+      - name: Smoke test
+        run: test/smoke.sh

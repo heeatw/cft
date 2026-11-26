@@ -1,0 +1,177 @@
+#!/bin/bash
+# cft — Chrome for Testing, one shared browser in ~/.chrome-for-testing, one profile per project.
+# Docs: README.md and docs/AGENTS.md in the cft repo. Run `cft help`.
+set -euo pipefail
+
+CFT_VERSION=0.1.0
+HOME_DIR="${CFT_HOME:-$HOME/.chrome-for-testing}"
+BROWSERS="$HOME_DIR/browsers"
+PORT_MIN=9300; PORT_RANGE=700   # project ports live in 9300–9999
+
+die() { echo "cft: $*" >&2; exit 1; }
+
+# The project: the git root of the current directory (or of CFT_PROJECT), else the directory itself.
+project_root() {
+  local d="${CFT_PROJECT:-$PWD}"
+  git -C "$d" rev-parse --show-toplevel 2>/dev/null || (cd "$d" && pwd)
+}
+
+# The newest installed Chrome for Testing binary.
+chrome_bin() {
+  local app
+  app=$(ls -d "$BROWSERS"/chrome/*/chrome-*/"Google Chrome for Testing.app" 2>/dev/null | sort -V | tail -1 || true)
+  if [ -n "$app" ]; then echo "$app/Contents/MacOS/Google Chrome for Testing"; return; fi
+  local linux
+  linux=$(ls -d "$BROWSERS"/chrome/*/chrome-linux64/chrome 2>/dev/null | sort -V | tail -1 || true)
+  [ -n "$linux" ] && { echo "$linux"; return; }
+  die "Chrome for Testing isn't installed: run \`cft install\`"
+}
+
+# <project>/.chrome-for-testing, kept out of git (in .git/info/exclude if the project doesn't ignore it already).
+project_dir() {
+  local root dir
+  root=$(project_root); dir="$root/.chrome-for-testing"
+  mkdir -p "$dir/profile" "$dir/headless" "$dir/shots"
+  if git -C "$root" rev-parse --git-dir >/dev/null 2>&1 && ! git -C "$root" check-ignore -q "$dir/profile" 2>/dev/null; then
+    local ex; ex="$(git -C "$root" rev-parse --git-path info/exclude)"
+    case "$ex" in /*) ;; *) ex="$root/$ex" ;; esac
+    mkdir -p "$(dirname "$ex")"; echo ".chrome-for-testing/" >> "$ex"
+  fi
+  echo "$dir"
+}
+
+# The project's preferred DevTools port (9300–9999, from the project path), so several projects can be open at once.
+preferred_port() {
+  local root; root=$(project_root)
+  echo $(( PORT_MIN + $(printf '%s' "$root" | cksum | cut -d' ' -f1) % PORT_RANGE ))
+}
+
+# Is something listening on <port>? lsof sees IPv4 and IPv6 listeners; a connect attempt (bash's /dev/tcp, then nc)
+# catches what lsof can't show without root.
+port_in_use() {
+  if command -v lsof >/dev/null 2>&1; then lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1 && return 0; fi
+  (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null && return 0
+  command -v nc >/dev/null 2>&1 && nc -z -w 1 127.0.0.1 "$1" >/dev/null 2>&1
+}
+
+# Does DevTools answer on <port>?
+devtools_up() { curl -s -m 1 "http://127.0.0.1:$1/json/version" >/dev/null 2>&1; }
+
+# The pid and port of this project's running browser (from its pid file), or nothing. Cleans up a stale pid file.
+running() {
+  local dir="$1" pid port
+  [ -f "$dir/chrome.pid" ] || return 1
+  { read -r pid; read -r port; } < "$dir/chrome.pid" || true
+  if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null && [ -n "${port:-}" ] && devtools_up "$port"; then
+    echo "$pid $port"; return 0
+  fi
+  rm -f "$dir/chrome.pid"; return 1
+}
+
+# The preferred port if free, else the next free one in the range.
+free_port() {
+  local start port i; start=$(preferred_port)
+  for ((i = 0; i < PORT_RANGE; i++)); do
+    port=$(( PORT_MIN + (start - PORT_MIN + i) % PORT_RANGE ))
+    port_in_use "$port" || { echo "$port"; return; }
+  done
+  die "no free port in $PORT_MIN–$((PORT_MIN + PORT_RANGE - 1))"
+}
+
+# Flags for every launch: no macOS Keychain / Linux keyring prompts (as Puppeteer does), plus CFT_FLAGS from the
+# user (e.g. "--headless=new --disable-gpu" on a display-less Linux box, "--no-sandbox" in a container).
+# shellcheck disable=SC2206
+extra_flags=(--use-mock-keychain --password-store=basic ${CFT_FLAGS:-})
+hint() { echo "cft: Chrome exited $1; see $2. Linux without user namespaces (containers, Ubuntu 24.04+): CFT_FLAGS='--no-sandbox'" >&2; }
+
+cmd="${1:-help}"; shift || true
+case "$cmd" in
+  install|update) # newest stable (re-run to update; old versions stay until `cft prune`)
+    mkdir -p "$BROWSERS"
+    (cd "$HOME_DIR" && npx -y @puppeteer/browsers install chrome@stable --path "$BROWSERS")
+    ;;
+  prune) # keep only the newest installed version
+    bin=$(chrome_bin); rel="${bin#"$BROWSERS"/chrome/}"; keep="$BROWSERS/chrome/${rel%%/*}"
+    for d in "$BROWSERS"/chrome/*/; do [ "${d%/}" = "$keep" ] || { echo "removing $d"; rm -rf "$d"; }; done
+    ;;
+  bin) chrome_bin ;;
+  version) "$(chrome_bin)" --version ;;   # the browser's version
+  -V|--version) echo "cft $CFT_VERSION" ;; # this tool's version
+  profile) project_dir ;;
+  port) # the DevTools port in use if the project's browser is open, else the port it would get
+    dir=$(project_dir)
+    if r=$(running "$dir"); then echo "${r#* }"; else preferred_port; fi
+    ;;
+  open) # a visible browser on the project's own profile, DevTools on the project's port
+    dir=$(project_dir)
+    if r=$(running "$dir"); then
+      port="${r#* }"
+      [ $# -gt 0 ] && curl -s -X PUT "http://127.0.0.1:$port/json/new?$1" >/dev/null
+      echo "already open: http://127.0.0.1:$port"; exit 0
+    fi
+    port=$(free_port)
+    [ "$port" = "$(preferred_port)" ] || echo "port $(preferred_port) is taken, using $port" >&2
+    nohup "$(chrome_bin)" --user-data-dir="$dir/profile" --remote-debugging-port="$port" \
+      --no-first-run --no-default-browser-check "${extra_flags[@]}" "$@" >"$dir/chrome.log" 2>&1 &
+    pid=$!
+    printf '%s\n%s\n' "$pid" "$port" > "$dir/chrome.pid"
+    for _ in $(seq 1 50); do devtools_up "$port" && break; kill -0 "$pid" 2>/dev/null || break; sleep 0.2; done
+    if ! devtools_up "$port"; then
+      kill "$pid" 2>/dev/null || true; rm -f "$dir/chrome.pid"
+      hint "early or hung" "$dir/chrome.log"; die "Chrome didn't come up on port $port"
+    fi
+    echo "open: profile $dir/profile, DevTools http://127.0.0.1:$port"
+    ;;
+  close) # the project's visible browser (by its pid file: never touches other Chromes)
+    dir=$(project_dir)
+    if r=$(running "$dir"); then
+      pid="${r% *}"; kill "$pid" 2>/dev/null || true
+      for _ in $(seq 1 50); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
+      kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null || true
+      rm -f "$dir/chrome.pid"; echo "closed"
+    else
+      echo "not open"
+    fi
+    ;;
+  shot) # cft shot <url> [out.png] [WIDTHxHEIGHT]: headless screenshot (own headless profile, works beside `open`)
+    [ $# -ge 1 ] || die "usage: cft shot <url> [out.png] [1440x900]"
+    dir=$(project_dir); url="$1"; out="${2:-$dir/shots/$(date +%Y%m%d-%H%M%S).png}"; size="${3:-1440x900}"
+    case "$out" in /*) ;; *) out="$PWD/$out" ;; esac
+    "$(chrome_bin)" --headless=new --user-data-dir="$dir/headless" --no-first-run --hide-scrollbars \
+      --window-size="${size/x/,}" --virtual-time-budget="${CFT_WAIT_MS:-3000}" "${extra_flags[@]}" \
+      --screenshot="$out" "$url" >/dev/null 2>"$dir/headless.log" || { hint "$?" "$dir/headless.log"; exit 1; }
+    [ -s "$out" ] || die "no screenshot (is $url reachable?)"
+    echo "$out"
+    ;;
+  dom) # cft dom <url>: the page's HTML after scripts ran (headless)
+    [ $# -ge 1 ] || die "usage: cft dom <url>"
+    dir=$(project_dir)
+    "$(chrome_bin)" --headless=new --user-data-dir="$dir/headless" --no-first-run \
+      --virtual-time-budget="${CFT_WAIT_MS:-3000}" "${extra_flags[@]}" --dump-dom "$1" \
+      2>"$dir/headless.log" || { hint "$?" "$dir/headless.log"; exit 1; }
+    ;;
+  run) # cft run [chrome flags…]: the binary on the project profile, anything else you need
+    dir=$(project_dir); exec "$(chrome_bin)" --user-data-dir="$dir/profile" --no-first-run "${extra_flags[@]}" "$@" ;;
+  help|-h|--help)
+    cat <<'EOF'
+cft — Chrome for Testing: one browser for every project (~/.chrome-for-testing), one profile per project
+(<project>/.chrome-for-testing/, kept out of git). The project is the git root of the current directory.
+
+  cft install            install / update the newest stable Chrome for Testing (needs Node.js: npx)
+  cft open [url]         visible browser on the project's profile (DevTools port: cft port)
+  cft close              close it
+  cft shot <url> [out.png] [1440x900]   headless screenshot (default: .chrome-for-testing/shots/<time>.png)
+  cft dom <url>          HTML after scripts ran (headless)
+  cft profile | port | bin | version   where things are (version: the browser's)
+  cft --version          this tool's version
+  cft run [flags…]       Chrome on the project's profile with your own flags
+  cft prune              remove older installed versions
+
+  CFT_WAIT_MS=5000 cft shot …   wait longer before the screenshot (default 3000 ms)
+  CFT_PROJECT=/path cft …       another project than the current directory's
+  CFT_FLAGS="--headless=new"    extra Chrome flags for every launch (display-less Linux: --headless=new;
+                                containers / Ubuntu 24.04+ without user namespaces: --no-sandbox)
+EOF
+    ;;
+  *) die "unknown command: $cmd (cft help)" ;;
+esac

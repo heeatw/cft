@@ -10,10 +10,20 @@ PORT_MIN=9300; PORT_RANGE=700   # project ports live in 9300–9999
 
 die() { echo "cft: $*" >&2; exit 1; }
 
-# The project: the git root of the current directory (or of CFT_PROJECT), else the directory itself.
+# The project: the git root of the current directory (or of CFT_PROJECT). Outside a git repo, the nearest directory
+# upward that already has .chrome-for-testing/profile/ (so a subdirectory finds the project it belongs to, as git
+# finds .git), else the directory itself. $HOME and / never count: ~/.chrome-for-testing holds the shared browsers.
 project_root() {
-  local d="${CFT_PROJECT:-$PWD}"
-  git -C "$d" rev-parse --show-toplevel 2>/dev/null || (cd "$d" && pwd)
+  local d p home
+  d=$(cd "${CFT_PROJECT:-$PWD}" && pwd)
+  if git -C "$d" rev-parse --show-toplevel 2>/dev/null; then return; fi
+  home=$(cd "$HOME" 2>/dev/null && pwd) || home=/
+  p="$d"
+  while [ "$p" != / ] && [ "$p" != "$home" ]; do
+    [ -d "$p/.chrome-for-testing/profile" ] && { echo "$p"; return; }
+    p=$(dirname "$p")
+  done
+  echo "$d"
 }
 
 # The newest installed Chrome for Testing binary.
@@ -155,7 +165,8 @@ case "$cmd" in
   help|-h|--help)
     cat <<'EOF'
 cft — Chrome for Testing: one browser for every project (~/.chrome-for-testing), one profile per project
-(<project>/.chrome-for-testing/, kept out of git). The project is the git root of the current directory.
+(<project>/.chrome-for-testing/, kept out of git). The project is the git root of the current directory; outside
+git, the nearest parent that already has .chrome-for-testing/profile/, else the directory itself.
 
   cft install            install / update the newest stable Chrome for Testing (needs Node.js: npx)
   cft open [url]         visible browser on the project's profile (DevTools port: cft port)

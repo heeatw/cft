@@ -3,6 +3,15 @@
 All notable changes to cft. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- Outside a git repo, a subdirectory of a project is no longer its own project: the project is now the nearest
+  directory upward that already has `.chrome-for-testing/profile/` (never `$HOME` or `/`), so `cft close` and
+  `cft port` from a subdirectory act on the browser `cft open` started at the root. A fresh non-git directory
+  still becomes a project in place on first use. `CFT_PROJECT` overrides as before. (#2)
+
 ## [0.1.0] - 2026-11-26
 
 First tagged release.
@@ -23,4 +32,5 @@ First tagged release.
 - Chrome's stderr from `shot` and `dom` is kept in `.chrome-for-testing/headless.log`.
 - `install.sh`, `test/smoke.sh`, CI on macOS and Ubuntu, MIT license.
 
+[Unreleased]: https://github.com/heeatw/cft/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/heeatw/cft/releases/tag/v0.1.0

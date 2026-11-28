@@ -38,8 +38,18 @@ profile=$("$cft" profile)
 grep -q '^\.chrome-for-testing/$' "$tmp/proj/.git/info/exclude" && ok "profile excluded from git" || fail "profile excluded from git"
 "$cft" profile >/dev/null; [ "$(grep -c '^\.chrome-for-testing/$' "$tmp/proj/.git/info/exclude")" = 1 ] && ok "exclude not duplicated" || fail "exclude not duplicated"
 
-# A directory that isn't a git repo is its own project.
-mkdir -p "$tmp/plain"; [ "$(CFT_PROJECT="$tmp/plain" "$cft" profile)" = "$tmp/plain/.chrome-for-testing" ] && ok "non-git dir is its own project" || fail "non-git dir is its own project"
+# A directory that isn't a git repo is its own project; once its profile exists, its subdirectories belong to it.
+mkdir -p "$tmp/plain/sub/deeper"
+[ "$(CFT_PROJECT="$tmp/plain/sub/deeper" "$cft" port)" != "$(CFT_PROJECT="$tmp/plain" "$cft" port)" ] && ok "non-git subdir is its own project before any profile exists" || fail "non-git subdir before profile"
+rm -rf "$tmp/plain/sub/deeper/.chrome-for-testing"
+[ "$(CFT_PROJECT="$tmp/plain" "$cft" profile)" = "$tmp/plain/.chrome-for-testing" ] && ok "non-git dir is its own project" || fail "non-git dir is its own project"
+[ "$(CFT_PROJECT="$tmp/plain/sub/deeper" "$cft" profile)" = "$tmp/plain/.chrome-for-testing" ] && ok "non-git subdir resolves to the project above it" || fail "non-git subdir resolves to the project above it"
+[ "$(CFT_PROJECT="$tmp/plain/sub/deeper" "$cft" port)" = "$(CFT_PROJECT="$tmp/plain" "$cft" port)" ] && ok "non-git subdir gets the project's port" || fail "non-git subdir gets the project's port"
+[ ! -d "$tmp/plain/sub/.chrome-for-testing" ] && ok "no profile created in the subdir" || fail "no profile created in the subdir"
+# $HOME is never a project: a profile there (where the shared browsers live) must not swallow every non-git directory.
+mkdir -p "$tmp/plain/.chrome-for-testing/profile"
+[ "$(HOME="$tmp/plain" CFT_PROJECT="$tmp/plain/sub" "$cft" profile)" = "$tmp/plain/sub/.chrome-for-testing" ] && ok "walk-up stops before \$HOME" || fail "walk-up stops before \$HOME"
+rm -rf "$tmp/plain/sub/.chrome-for-testing"
 
 port=$("$cft" port)
 [ "$port" -ge 9300 ] && [ "$port" -le 9999 ] && ok "port $port in range" || fail "port $port in range"

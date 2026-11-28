@@ -3,7 +3,7 @@
 # Docs: README.md and docs/AGENTS.md in the cft repo. Run `cft help`.
 set -euo pipefail
 
-CFT_VERSION=0.1.0
+CFT_VERSION=0.1.1
 HOME_DIR="${CFT_HOME:-$HOME/.chrome-for-testing}"
 BROWSERS="$HOME_DIR/browsers"
 PORT_MIN=9300; PORT_RANGE=700   # project ports live in 9300–9999

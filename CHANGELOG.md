@@ -3,7 +3,7 @@
 All notable changes to cft. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.1.1] - 2026-11-28
 
 ### Fixed
 
@@ -32,5 +32,5 @@ First tagged release.
 - Chrome's stderr from `shot` and `dom` is kept in `.chrome-for-testing/headless.log`.
 - `install.sh`, `test/smoke.sh`, CI on macOS and Ubuntu, MIT license.
 
-[Unreleased]: https://github.com/heeatw/cft/compare/v0.1.0...HEAD
+[0.1.1]: https://github.com/heeatw/cft/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/heeatw/cft/releases/tag/v0.1.0

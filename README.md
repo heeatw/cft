@@ -8,7 +8,8 @@ no personal logins, tabs or extensions are involved.
 
 - **One browser for every project**: installed once in `~/.chrome-for-testing/browsers/` via `@puppeteer/browsers`.
 - **One profile per project**: `<project>/.chrome-for-testing/` (the project = the git root of the current
-  directory). `profile/` for the visible browser, `headless/` for screenshots, `shots/` for the pictures.
+  directory; outside git, the nearest parent that already has a `.chrome-for-testing/profile/`, else the
+  directory itself). `profile/` for the visible browser, `headless/` for screenshots, `shots/` for the pictures.
   Created on first use and kept out of git (added to `.git/info/exclude` if not already ignored).
 - **One DevTools port per project** (9300–9999, derived from the project path): several projects can have
   their browser open at the same time. If that port happens to be taken, `cft open` takes the next free one

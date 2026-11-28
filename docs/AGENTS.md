@@ -7,7 +7,8 @@ the `cft` command (on PATH: `brew install heeatw/tap/cft`, or `install.sh` from 
 
 - **One browser for every project**: `~/.chrome-for-testing/browsers/` (installed with `@puppeteer/browsers`).
 - **One profile per project**: `<project>/.chrome-for-testing/` (the project = the git root of the current
-  directory). `profile/` for the visible browser, `headless/` for screenshots, `shots/` for the pictures. It's made
+  directory; outside git, the nearest parent that already has a `.chrome-for-testing/profile/`, else the directory
+  itself). `profile/` for the visible browser, `headless/` for screenshots, `shots/` for the pictures. It's made
   on first use and kept out of git: if the project doesn't ignore `.chrome-for-testing/`, cft adds it to
   `.git/info/exclude` (local only; the project's `.gitignore` isn't touched).
 - **One DevTools port per project** (`cft port`, 9300–9999, from the project's path): several projects can have their
